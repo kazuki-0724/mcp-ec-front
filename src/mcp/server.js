@@ -5,6 +5,7 @@ import { TOOL_DEFINITIONS } from "./schemas/toolSchemas.js";
 import { EMPLOYEE_TOOL_NAME, handleEmployeeTool } from "./tools/employeeTool.js";
 import { RECIPE_TOOL_NAME, handleRecipeTool } from "./tools/recipeTool.js";
 import { ITEM_TOOL_NAME, handleItemTool } from "./tools/itemTool.js";
+import { RUNTIME_DIAGNOSTICS_TOOL_NAME, handleRuntimeDiagnosticsTool } from "./tools/runtimeDiagnosticsTool.js";
 
 export function createMcpServer({ usecases, logger }) {
     const server = new Server(
@@ -13,6 +14,7 @@ export function createMcpServer({ usecases, logger }) {
     );
 
     const handlers = {
+        [RUNTIME_DIAGNOSTICS_TOOL_NAME]: (args) => handleRuntimeDiagnosticsTool(args, usecases),
         [EMPLOYEE_TOOL_NAME]: (args) => handleEmployeeTool(args, usecases),
         [RECIPE_TOOL_NAME]: (args) => handleRecipeTool(args, usecases),
         [ITEM_TOOL_NAME]: (args) => handleItemTool(args, usecases)

@@ -6,6 +6,66 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+function toBoolean(value, defaultValue = false) {
+    if (value == null) return defaultValue;
+    return new Set(['1', 'true', 'yes', 'on']).has(String(value).toLowerCase());
+}
+
+function resolveExternalApiMode() {
+    const modeRaw = (process.env.EXTERNAL_API_MODE || '').trim().toLowerCase();
+    if (modeRaw === 'mock' || modeRaw === 'local' || modeRaw === 'production') {
+        return modeRaw;
+    }
+
+    return toBoolean(process.env.USE_EXTERNAL_APIS, false) ? 'production' : 'mock';
+}
+
+function summarizeExternalApiTarget() {
+    const mode = resolveExternalApiMode();
+    const endpoint = process.env.GRAPHQL_API_ENDPOINT || (mode === 'local' ? 'http://localhost:8081/graphql' : null);
+
+    if (mode === 'mock') {
+        return {
+            mode,
+            target: 'built-in mock data',
+            endpoint: null,
+            tokenConfigured: false,
+            userId: null
+        };
+    }
+
+    return {
+        mode,
+        target: 'graphql external api',
+        endpoint,
+        tokenConfigured: Boolean(process.env.GRAPHQL_API_TOKEN),
+        userId: process.env.GRAPHQL_API_USER_ID || 'mcp-server'
+    };
+}
+
+const externalApiTarget = summarizeExternalApiTarget();
+
+function buildMcpChildEnv() {
+    const env = {
+        ...process.env
+    };
+
+    if (externalApiTarget.mode) {
+        env.EXTERNAL_API_MODE = externalApiTarget.mode;
+    }
+    if (externalApiTarget.endpoint) {
+        env.GRAPHQL_API_ENDPOINT = externalApiTarget.endpoint;
+    }
+    if (process.env.GRAPHQL_API_USER_ID) {
+        env.GRAPHQL_API_USER_ID = process.env.GRAPHQL_API_USER_ID;
+    }
+    if (process.env.GRAPHQL_API_TOKEN) {
+        env.GRAPHQL_API_TOKEN = process.env.GRAPHQL_API_TOKEN;
+    }
+
+    return env;
+}
+
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
@@ -13,13 +73,20 @@ app.use(express.static('public'));
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // MCPクライアントの初期化（mcp-server.jsを子プロセスとして起動）
-const mcpTransport = new StdioClientTransport({ command: "node", args: ["mcp-server.js"] });
+const mcpTransport = new StdioClientTransport({
+    command: "node",
+    args: ["mcp-server.js"],
+    env: buildMcpChildEnv()
+});
 const mcpClient = new Client({ name: "gemini-client", version: "1.0.0" }, { capabilities: {} });
 
 async function initMCP() {
     await mcpClient.connect(mcpTransport);
+    console.log('[Server Config] MCP client connected', externalApiTarget);
 }
 initMCP();
+
+console.log('[Server Config] External API target resolved', externalApiTarget);
 
 function resolveErrorStatus(error) {
     if (typeof error?.status === 'number') return error.status;
@@ -46,6 +113,69 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const DEV_GRAPHQL_QUERIES = {
+    employee: {
+        operationName: 'EmployeeById',
+        query: `
+            query EmployeeById($employeeId: ID!) {
+                employeeById(employeeId: $employeeId) {
+                    employeeId
+                    name
+                    department
+                }
+            }
+        `
+    },
+    recipe: {
+        operationName: 'RecipeByKeyword',
+        query: `
+            query RecipeByKeyword($keyword: String!) {
+                recipeByKeyword(keyword: $keyword) {
+                    keyword
+                    nextActionHint
+                    recipe {
+                        recipeId
+                        recipeName
+                        servings
+                        requiredIngredients {
+                            ingredientName
+                            requiredQty
+                            itemId
+                        }
+                    }
+                }
+            }
+        `
+    },
+    item: {
+        operationName: 'ItemById',
+        query: `
+            query ItemById($itemId: ID!) {
+                itemById(itemId: $itemId) {
+                    itemId
+                    itemName
+                    unitPrice
+                    unit
+                    stock
+                }
+            }
+        `
+    }
+};
+
+function buildDevHeaders() {
+    const headers = {
+        'Content-Type': 'application/json',
+        'X-User-Id': process.env.GRAPHQL_API_USER_ID || 'mcp-server'
+    };
+
+    if (process.env.GRAPHQL_API_TOKEN) {
+        headers.Authorization = `Bearer ${process.env.GRAPHQL_API_TOKEN}`;
+    }
+
+    return headers;
+}
+
 function isRetryableGeminiError(error) {
     const status = resolveErrorStatus(error);
     const message = resolveErrorMessage(error).toLowerCase();
@@ -70,10 +200,104 @@ async function sendMessageWithRetry(chat, payload, options = {}) {
     }
 }
 
+app.get('/api/dev/external-target', (_req, res) => {
+    res.json({
+        ...externalApiTarget,
+        endpointReachableByConfig: Boolean(externalApiTarget.endpoint)
+    });
+});
+
+app.get('/api/dev/mcp-runtime-diagnostics', async (_req, res) => {
+    try {
+        const toolResult = await mcpClient.callTool({
+            name: 'get_runtime_diagnostics',
+            arguments: {}
+        });
+        const toolResultText = toolResult?.content?.[0]?.text ?? null;
+        const parsedToolResult = tryParseJson(toolResultText);
+
+        res.json({
+            ok: true,
+            parent: {
+                processId: process.pid,
+                mode: externalApiTarget.mode,
+                endpoint: externalApiTarget.endpoint
+            },
+            child: parsedToolResult ?? toolResultText ?? toolResult
+        });
+    } catch (error) {
+        const status = resolveErrorStatus(error);
+        res.status(status).json({
+            ok: false,
+            error: resolveErrorMessage(error),
+            parent: {
+                processId: process.pid,
+                mode: externalApiTarget.mode,
+                endpoint: externalApiTarget.endpoint
+            }
+        });
+    }
+});
+
+app.post('/api/dev/graphql-probe', async (req, res) => {
+    try {
+        const { operation, variables } = req.body || {};
+        const queryDef = DEV_GRAPHQL_QUERIES[operation];
+
+        if (!queryDef) {
+            return res.status(400).json({
+                error: 'operation must be one of: employee, recipe, item'
+            });
+        }
+
+        if (!externalApiTarget.endpoint) {
+            return res.status(400).json({
+                error: 'GRAPHQL_API_ENDPOINT is not configured for current mode',
+                target: externalApiTarget
+            });
+        }
+
+        const payload = {
+            operationName: queryDef.operationName,
+            query: queryDef.query,
+            variables: variables || {}
+        };
+
+        const response = await fetch(externalApiTarget.endpoint, {
+            method: 'POST',
+            headers: buildDevHeaders(),
+            body: JSON.stringify(payload)
+        });
+
+        const contentType = response.headers.get('content-type') || '';
+        const isJson = contentType.includes('application/json');
+        const body = isJson ? await response.json() : await response.text();
+
+        res.status(response.status).json({
+            ok: response.ok,
+            mode: externalApiTarget.mode,
+            endpoint: externalApiTarget.endpoint,
+            request: {
+                operation,
+                variables: variables || {}
+            },
+            response: body
+        });
+    } catch (error) {
+        const status = resolveErrorStatus(error);
+        res.status(status).json({
+            error: resolveErrorMessage(error),
+            mode: externalApiTarget.mode,
+            endpoint: externalApiTarget.endpoint
+        });
+    }
+});
+
 app.post('/api/chat', async (req, res) => {
     try {
         const { prompt } = req.body;
         const toolResultTexts = [];
+        const calledTools = [];
         const callSignatureCount = new Map();
 
         console.log(`[Chat Request] ユーザーからのプロンプト: ${prompt}`);
@@ -97,7 +321,11 @@ app.post('/api/chat', async (req, res) => {
             }))
         }];
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash", tools: geminiTools });
+        const model = genAI.getGenerativeModel({
+            model: "gemini-2.5-flash-lite",
+            tools: geminiTools,
+            systemInstruction: "社員情報・レシピ・商品情報に関する質問は、推測せず必ず利用可能なツールを呼び出してから回答してください。"
+        });
         const chat = model.startChat();
         // 3. Geminiにプロンプトを送信
         let result = await sendMessageWithRetry(chat, prompt, { maxRetries: 3, baseDelayMs: 800 });
@@ -124,6 +352,7 @@ app.post('/api/chat', async (req, res) => {
                 const call = functionCalls[i];
                 const signature = signatures[i];
                 callSignatureCount.set(signature, (callSignatureCount.get(signature) || 0) + 1);
+                calledTools.push(call.name);
 
                 console.log(`[Function Calling] Geminiが ${call.name} を要求しました。引数:`, call.args);
 
@@ -147,6 +376,11 @@ app.post('/api/chat', async (req, res) => {
                 if (toolResultText) toolResultTexts.push(toolResultText);
                 const parsedToolResult = tryParseJson(toolResultText);
 
+                console.log(
+                    `[Function Calling] MCP result from ${call.name}:`,
+                    parsedToolResult ?? toolResultText ?? toolResult
+                );
+
                 functionResponses.push({
                     functionResponse: {
                         name: call.name,
@@ -164,7 +398,20 @@ app.post('/api/chat', async (req, res) => {
         const fallbackText = toolResultTexts.length > 0
             ? `ツール実行結果: ${toolResultTexts.join(' | ')}`
             : null;
-        res.json({ text: responseText || fallbackText || '回答テキストを生成できませんでした。' });
+
+        if (calledTools.length === 0) {
+            console.warn('[Function Calling] このリクエストではツール呼び出しが行われませんでした。');
+        }
+
+        res.json({
+            text: responseText || fallbackText || '回答テキストを生成できませんでした。',
+            debug: {
+                mode: externalApiTarget.mode,
+                endpoint: externalApiTarget.endpoint,
+                toolCallCount: calledTools.length,
+                calledTools
+            }
+        });
 
     } catch (error) {
         const status = resolveErrorStatus(error);

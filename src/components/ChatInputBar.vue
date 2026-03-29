@@ -21,7 +21,7 @@ function onKeydown(event) {
 </script>
 
 <template>
-  <div class="fixed bottom-6 left-0 w-full px-4 z-40">
+  <div class="fixed bottom-6 left-0 right-0 md:left-64 px-4 z-40">
     <div class="max-w-2xl mx-auto">
       <div class="bg-white/90 backdrop-blur-2xl rounded-2xl shadow-[0_12px_40px_rgba(25,28,29,0.1)] p-2 flex items-center gap-2 border border-outline-variant/20">
         <input

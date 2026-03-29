@@ -1,5 +1,14 @@
 export const TOOL_DEFINITIONS = [
     {
+        name: "get_runtime_diagnostics",
+        description: "MCP子プロセスの実行時設定（mode、endpoint、関連環境変数の安全なスナップショット）を返します。",
+        inputSchema: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    },
+    {
         name: "get_employee_info",
         description: "社員IDから、その社員の名前と所属部署を取得します。",
         inputSchema: {

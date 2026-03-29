@@ -4,6 +4,7 @@ import { createMcpServer } from "../mcp/server.js";
 import { createGetEmployeeInfoUseCase } from "../usecases/getEmployeeInfo.js";
 import { createGetRecipeByKeywordUseCase } from "../usecases/getRecipeByKeyword.js";
 import { createGetItemInfoByIdUseCase } from "../usecases/getItemInfoById.js";
+import { createGetRuntimeDiagnosticsUseCase } from "../usecases/getRuntimeDiagnostics.js";
 import { createHttpClient } from "../infra/http/client.js";
 import { createEmployeeApi } from "../infra/externalApis/employeeApi.js";
 import { createRecipeApi } from "../infra/externalApis/recipeApi.js";
@@ -11,9 +12,32 @@ import { createItemApi } from "../infra/externalApis/itemApi.js";
 import { createExternalApiGateway } from "../gateways/externalApiGateway.js";
 import { createLogger } from "../shared/logger/logger.js";
 
+function summarizeExternalApiTarget(config) {
+    if (config.externalApiMode === "mock") {
+        return {
+            mode: config.externalApiMode,
+            target: "built-in mock data",
+            endpoint: null,
+            tokenConfigured: false,
+            userId: null
+        };
+    }
+
+    return {
+        mode: config.externalApiMode,
+        target: "graphql external api",
+        endpoint: config.externalApi.graphql.endpoint || null,
+        tokenConfigured: Boolean(config.externalApi.graphql.token),
+        userId: config.externalApi.graphql.userId || null
+    };
+}
+
 export async function startMcpApp() {
     const logger = createLogger("mcp-server");
     const config = loadConfig();
+    const targetSummary = summarizeExternalApiTarget(config);
+
+    logger.info("External API target resolved", targetSummary);
 
     const httpClient = createHttpClient({
         timeoutMs: config.externalApi.timeoutMs,
@@ -22,21 +46,36 @@ export async function startMcpApp() {
     });
 
     const gateway = createExternalApiGateway({
-        useExternalApis: config.useExternalApis,
-        employeeApi: createEmployeeApi(httpClient, config.externalApi.employee),
-        recipeApi: createRecipeApi(httpClient, config.externalApi.recipe),
-        itemApi: createItemApi(httpClient, config.externalApi.item)
+        mode: config.externalApiMode,
+        employeeApi: createEmployeeApi(httpClient, config.externalApi.graphql),
+        recipeApi: createRecipeApi(httpClient, config.externalApi.graphql),
+        itemApi: createItemApi(httpClient, config.externalApi.graphql)
     });
 
     const usecases = {
         getEmployeeInfo: createGetEmployeeInfoUseCase({ gateway }),
         getRecipeByKeyword: createGetRecipeByKeywordUseCase({ gateway }),
-        getItemInfoById: createGetItemInfoByIdUseCase({ gateway })
+        getItemInfoById: createGetItemInfoByIdUseCase({ gateway }),
+        getRuntimeDiagnostics: createGetRuntimeDiagnosticsUseCase({
+            runtime: {
+                processId: process.pid,
+                cwd: process.cwd(),
+                startedAt: new Date().toISOString(),
+                externalApiMode: config.externalApiMode,
+                externalApi: config.externalApi,
+                envSnapshot: {
+                    EXTERNAL_API_MODE: process.env.EXTERNAL_API_MODE || null,
+                    USE_EXTERNAL_APIS: process.env.USE_EXTERNAL_APIS || null,
+                    GRAPHQL_API_ENDPOINT: process.env.GRAPHQL_API_ENDPOINT || null,
+                    GRAPHQL_API_USER_ID: process.env.GRAPHQL_API_USER_ID || null
+                }
+            }
+        })
     };
 
     const server = createMcpServer({ usecases, logger });
     const transport = new StdioServerTransport();
     await server.connect(transport);
 
-    logger.info(`MCP server started. useExternalApis=${config.useExternalApis}`);
+    logger.info(`MCP server started. externalApiMode=${config.externalApiMode}`);
 }

@@ -1,5 +1,5 @@
 <template>
-  <header class="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl shadow-[0_12px_40px_rgba(25,28,29,0.05)]">
+  <header class="fixed top-0 left-0 right-0 md:left-64 z-50 bg-white/80 backdrop-blur-xl shadow-[0_12px_40px_rgba(25,28,29,0.05)]">
     <div class="flex items-center justify-between px-6 py-3 w-full max-w-7xl mx-auto">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-primary-container flex items-center justify-center ai-orb-glow">

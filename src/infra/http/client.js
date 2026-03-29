@@ -64,6 +64,28 @@ export function createHttpClient(config = {}) {
                     }
                 }
             );
+        },
+        postJson(url, options = {}) {
+            return withRetry(
+                () => requestJson(url, {
+                    ...options,
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...(options.headers || {})
+                    }
+                }),
+                {
+                    retries: retryCount,
+                    baseDelayMs: retryDelayMs,
+                    shouldRetry: (error) => {
+                        if (typeof error?.status === "number") {
+                            return isRetryableStatus(error.status);
+                        }
+                        return false;
+                    }
+                }
+            );
         }
     };
 }
