@@ -23,6 +23,20 @@ body {
   box-shadow: 0 0 22px rgba(0, 88, 190, 0.35);
 }
 
+.soft-panel {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(16px);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 .message-row {
   display: flex;
   width: 100%;
@@ -36,9 +50,18 @@ body {
   justify-content: flex-start;
 }
 
+.message-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
 .message-bubble {
-  max-width: 90%;
+  width: fit-content;
+  max-width: min(100%, 42rem);
   white-space: pre-wrap;
+  word-break: break-word;
   border-radius: 18px;
   padding: 14px 16px;
   box-shadow: 0 12px 40px rgba(25, 28, 29, 0.05);
@@ -60,8 +83,59 @@ body {
   font-style: italic;
 }
 
+.thinking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #334155;
+}
+
+.thinking-label {
+  letter-spacing: 0.02em;
+}
+
+.thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.thinking-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #64748b;
+  animation: thinking-dot 1.2s infinite ease-in-out;
+}
+
+.thinking-dots span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.thinking-dots span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes thinking-dot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
 @media (max-width: 640px) {
+  .message-stack {
+    max-width: 100%;
+  }
+
   .message-bubble {
-    max-width: 95%;
+    max-width: min(100%, calc(100vw - 2rem));
   }
 }

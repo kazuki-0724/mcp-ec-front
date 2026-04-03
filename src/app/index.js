@@ -1,10 +1,8 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config/env.js";
 import { createMcpServer } from "../mcp/server.js";
-import { createGetEmployeeInfoUseCase } from "../usecases/getEmployeeInfo.js";
-import { createGetRecipeByKeywordUseCase } from "../usecases/getRecipeByKeyword.js";
-import { createGetItemInfoByIdUseCase } from "../usecases/getItemInfoById.js";
 import { createGetRuntimeDiagnosticsUseCase } from "../usecases/getRuntimeDiagnostics.js";
+import { createCommerceUsecases } from "../usecases/commerceUseCases.js";
 import { createHttpClient } from "../infra/http/client.js";
 import { createEmployeeApi } from "../infra/externalApis/employeeApi.js";
 import { createRecipeApi } from "../infra/externalApis/recipeApi.js";
@@ -53,10 +51,8 @@ export async function startMcpApp() {
     });
 
     const usecases = {
-        getEmployeeInfo: createGetEmployeeInfoUseCase({ gateway }),
-        getRecipeByKeyword: createGetRecipeByKeywordUseCase({ gateway }),
-        getItemInfoById: createGetItemInfoByIdUseCase({ gateway }),
-        getRuntimeDiagnostics: createGetRuntimeDiagnosticsUseCase({
+        ...createCommerceUsecases({ gateway }),
+        get_runtime_diagnostics: createGetRuntimeDiagnosticsUseCase({
             runtime: {
                 processId: process.pid,
                 cwd: process.cwd(),

@@ -200,6 +200,37 @@ async function sendMessageWithRetry(chat, payload, options = {}) {
     }
 }
 
+async function callMcpToolByName(name, args = {}) {
+    const { tools: mcpTools } = await mcpClient.listTools();
+    const availableToolNames = new Set(mcpTools.map((tool) => tool.name));
+
+    if (!availableToolNames.has(name)) {
+        return {
+            ok: false,
+            status: 400,
+            body: {
+                error: `Unknown tool: ${name}`,
+                availableTools: [...availableToolNames]
+            }
+        };
+    }
+
+    const toolResult = await mcpClient.callTool({
+        name,
+        arguments: args
+    });
+    const toolResultText = toolResult?.content?.[0]?.text ?? null;
+    const parsedToolResult = tryParseJson(toolResultText);
+    return {
+        ok: true,
+        status: 200,
+        body: {
+            name,
+            data: parsedToolResult ?? toolResultText ?? toolResult
+        }
+    };
+}
+
 app.get('/api/dev/external-target', (_req, res) => {
     res.json({
         ...externalApiTarget,
@@ -293,11 +324,32 @@ app.post('/api/dev/graphql-probe', async (req, res) => {
     }
 });
 
+app.post('/api/mcp/tool', async (req, res) => {
+    try {
+        const { name, arguments: args } = req.body || {};
+
+        if (!name || typeof name !== 'string') {
+            return res.status(400).json({
+                error: 'name must be a non-empty string'
+            });
+        }
+
+        const result = await callMcpToolByName(name, args || {});
+        return res.status(result.status).json(result.body);
+    } catch (error) {
+        const status = resolveErrorStatus(error);
+        res.status(status).json({
+            error: resolveErrorMessage(error)
+        });
+    }
+});
+
 app.post('/api/chat', async (req, res) => {
     try {
         const { prompt } = req.body;
         const toolResultTexts = [];
         const calledTools = [];
+        const toolExecutions = [];
         const callSignatureCount = new Map();
 
         console.log(`[Chat Request] ユーザーからのプロンプト: ${prompt}`);
@@ -322,9 +374,9 @@ app.post('/api/chat', async (req, res) => {
         }];
 
         const model = genAI.getGenerativeModel({
-            model: "gemini-2.5-flash-lite",
+            model: "gemini-3.1-flash-lite-preview",
             tools: geminiTools,
-            systemInstruction: "社員情報・レシピ・商品情報に関する質問は、推測せず必ず利用可能なツールを呼び出してから回答してください。"
+            systemInstruction: "ECアシスタントとして、社員情報・レシピ・商品・カート・お気に入り・注文照会に関する質問は推測せず必ず利用可能なツールを呼び出してから回答してください。カート更新や注文照会を行った場合は、実行結果に基づいて簡潔に状態変化を説明してください。"
         });
         const chat = model.startChat();
         // 3. Geminiにプロンプトを送信
@@ -381,6 +433,12 @@ app.post('/api/chat', async (req, res) => {
                     parsedToolResult ?? toolResultText ?? toolResult
                 );
 
+                toolExecutions.push({
+                    name: call.name,
+                    arguments: call.args || {},
+                    result: parsedToolResult ?? toolResultText ?? toolResult
+                });
+
                 functionResponses.push({
                     functionResponse: {
                         name: call.name,
@@ -405,6 +463,7 @@ app.post('/api/chat', async (req, res) => {
 
         res.json({
             text: responseText || fallbackText || '回答テキストを生成できませんでした。',
+            toolExecutions,
             debug: {
                 mode: externalApiTarget.mode,
                 endpoint: externalApiTarget.endpoint,
@@ -426,4 +485,5 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
-app.listen(3000, () => console.log('Server running on http://localhost:3000'));
+const port = Number(process.env.PORT || 3000);
+app.listen(port, () => console.log(`Server running on http://localhost:${port}`));

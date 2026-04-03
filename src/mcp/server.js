@@ -2,10 +2,6 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { AppError, toAppError } from "../shared/errors/AppError.js";
 import { TOOL_DEFINITIONS } from "./schemas/toolSchemas.js";
-import { EMPLOYEE_TOOL_NAME, handleEmployeeTool } from "./tools/employeeTool.js";
-import { RECIPE_TOOL_NAME, handleRecipeTool } from "./tools/recipeTool.js";
-import { ITEM_TOOL_NAME, handleItemTool } from "./tools/itemTool.js";
-import { RUNTIME_DIAGNOSTICS_TOOL_NAME, handleRuntimeDiagnosticsTool } from "./tools/runtimeDiagnosticsTool.js";
 
 export function createMcpServer({ usecases, logger }) {
     const server = new Server(
@@ -13,18 +9,11 @@ export function createMcpServer({ usecases, logger }) {
         { capabilities: { tools: {} } }
     );
 
-    const handlers = {
-        [RUNTIME_DIAGNOSTICS_TOOL_NAME]: (args) => handleRuntimeDiagnosticsTool(args, usecases),
-        [EMPLOYEE_TOOL_NAME]: (args) => handleEmployeeTool(args, usecases),
-        [RECIPE_TOOL_NAME]: (args) => handleRecipeTool(args, usecases),
-        [ITEM_TOOL_NAME]: (args) => handleItemTool(args, usecases)
-    };
-
     server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_DEFINITIONS }));
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const toolName = request.params.name;
-        const toolHandler = handlers[toolName];
+        const toolHandler = usecases[toolName];
 
         if (!toolHandler) {
             throw new AppError(`Unknown tool: ${toolName}`, { code: "MCP_UNKNOWN_TOOL", status: 400 });

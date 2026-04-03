@@ -10,7 +10,7 @@ defineProps({
   }
 });
 
-const emit = defineEmits(['update:modelValue', 'send']);
+const emit = defineEmits(['update:modelValue', 'send', 'toggle-commerce-desk']);
 
 function onKeydown(event) {
   if (event.key === 'Enter') {
@@ -21,9 +21,12 @@ function onKeydown(event) {
 </script>
 
 <template>
-  <div class="fixed bottom-6 left-0 right-0 md:left-64 px-4 z-40">
-    <div class="max-w-2xl mx-auto">
-      <div class="bg-white/90 backdrop-blur-2xl rounded-2xl shadow-[0_12px_40px_rgba(25,28,29,0.1)] p-2 flex items-center gap-2 border border-outline-variant/20">
+  <footer class="fixed bottom-0 right-0 left-0 md:left-64 p-4 md:p-6 pb-[120px] md:pb-6 bg-gradient-to-t from-surface via-surface to-transparent pointer-events-none z-30">
+    <div class="max-w-4xl mx-auto w-full pointer-events-auto">
+      <div class="bg-white/90 backdrop-blur-2xl rounded-3xl p-2 shadow-[0_12px_40px_rgba(25,28,29,0.1)] border border-outline-variant/20 flex items-center gap-2">
+        <button class="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors" type="button" aria-label="コマースデスクを開く" @click="emit('toggle-commerce-desk')">
+          <span class="material-symbols-outlined">add_circle</span>
+        </button>
         <input
           class="flex-1 bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-slate-400 text-sm py-3 px-2"
           placeholder="例: 社員E001の部署、またはカレーの材料をカゴに追加して"
@@ -33,15 +36,15 @@ function onKeydown(event) {
           @keydown="onKeydown"
         />
         <button
-          class="w-11 h-11 bg-primary text-white rounded-xl flex items-center justify-center shadow-lg active:scale-95 transition-transform disabled:opacity-60"
+          class="w-10 h-10 bg-primary text-white rounded-2xl flex items-center justify-center shadow-lg shadow-primary/20 active:scale-95 transition-transform disabled:opacity-60"
           type="button"
           aria-label="送信"
           :disabled="sending"
           @click="emit('send')"
         >
-          <span class="material-symbols-outlined">arrow_upward</span>
+          <span class="material-symbols-outlined text-sm">arrow_upward</span>
         </button>
       </div>
     </div>
-  </div>
+  </footer>
 </template>
