@@ -1,24 +1,53 @@
-function toTrimmedString(value) {
-    return typeof value === "string" ? value.trim() : "";
-}
-
-function toPositiveInteger(value, fallback = 1) {
-    const numberValue = Number(value);
-    if (!Number.isFinite(numberValue) || numberValue <= 0) return fallback;
-    return Math.floor(numberValue);
-}
+import {
+    buildBulkPriceQuote,
+    buildCartSummary,
+    buildInventoryStatus,
+    buildPriceLine,
+    estimateShippingFeeQuote,
+    normalizeCustomerTier
+} from "../domain/commerce/pricing.js";
+import { createValidatedUsecase, toPositiveInteger, toTrimmedString } from "./helpers/createValidatedUsecase.js";
 
 function withItemNotFound(itemId) {
     return { error: `商品ID「${itemId}」は見つかりませんでした。` };
 }
 
+async function buildPricedLine(gateway, { itemId, quantity, customerTier }) {
+    const product = await gateway.getProduct(itemId);
+    if (!product) return null;
+
+    return buildPriceLine({
+        product,
+        quantity,
+        customerTier
+    });
+}
+
+async function buildCartSnapshot(gateway) {
+    const cart = await gateway.getCartState();
+    const customerProfile = await gateway.getCustomerProfile(cart.customerId);
+    const customerTier = customerProfile?.tier || "bronze";
+    const items = (await Promise.all(
+        (cart.items || []).map((item) => buildPricedLine(gateway, {
+            itemId: item.itemId,
+            quantity: item.quantity,
+            customerTier
+        }))
+    )).filter(Boolean);
+    const coupon = cart.couponCode ? await gateway.getCouponByCode(cart.couponCode) : null;
+
+    return buildCartSummary({ cart, items, coupon });
+}
+
+async function saveCartAndBuildSnapshot(gateway, cart) {
+    await gateway.saveCartState(cart);
+    return buildCartSnapshot(gateway);
+}
+
 export function createCommerceUsecases({ gateway }) {
     return {
-        async get_employee_info(params = {}) {
-            const employeeId = toTrimmedString(params.employeeId);
-            if (!employeeId) {
-                return { error: "社員IDが指定されていません。" };
-            }
+        get_employee_info: createValidatedUsecase(async (read) => {
+            const employeeId = read.requiredString("employeeId", "社員IDが指定されていません。");
 
             const employee = await gateway.getEmployeeInfo(employeeId);
             if (!employee) {
@@ -32,13 +61,10 @@ export function createCommerceUsecases({ gateway }) {
                 role: employee.role,
                 email: employee.email
             };
-        },
+        }),
 
-        async get_recipe_by_keyword(params = {}) {
-            const keyword = toTrimmedString(params.keyword);
-            if (!keyword) {
-                return { error: "キーワードが指定されていません。" };
-            }
+        get_recipe_by_keyword: createValidatedUsecase(async (read) => {
+            const keyword = read.requiredString("keyword", "キーワードが指定されていません。");
 
             const recipe = await gateway.getRecipeByKeyword(keyword);
             if (!recipe) {
@@ -55,13 +81,10 @@ export function createCommerceUsecases({ gateway }) {
                 },
                 nextActionHint: "requiredIngredients[].itemId を使って get_item_info_by_id を呼び出してください。"
             };
-        },
+        }),
 
-        async get_item_info_by_id(params = {}) {
-            const itemId = toTrimmedString(params.itemId);
-            if (!itemId) {
-                return { error: "商品IDが指定されていません。" };
-            }
+        get_item_info_by_id: createValidatedUsecase(async (read) => {
+            const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
 
             const item = await gateway.getItemInfoById(itemId);
             if (!item) {
@@ -78,17 +101,15 @@ export function createCommerceUsecases({ gateway }) {
                 stock: item.stock,
                 tags: item.tags
             };
-        },
+        }),
 
-        async search_products(params = {}) {
-            const query = toTrimmedString(params.query);
-            const categoryId = toTrimmedString(params.categoryId);
-            const brandId = toTrimmedString(params.brandId);
-            const limit = toPositiveInteger(params.limit, 8);
+        search_products: createValidatedUsecase(async (read) => {
+            const query = read.optionalString("query");
+            const categoryId = read.optionalString("categoryId");
+            const brandId = read.optionalString("brandId");
+            const limit = read.positiveInteger("limit", 8);
 
-            if (!query && !categoryId && !brandId) {
-                return { error: "query, categoryId, brandId のいずれかを指定してください。" };
-            }
+            read.ensure(query || categoryId || brandId, "query, categoryId, brandId のいずれかを指定してください。");
 
             return {
                 query: query || null,
@@ -96,13 +117,10 @@ export function createCommerceUsecases({ gateway }) {
                 brandId: brandId || null,
                 products: await gateway.searchProducts({ query, categoryId, brandId, limit })
             };
-        },
+        }),
 
-        async get_product_details(params = {}) {
-            const itemId = toTrimmedString(params.itemId);
-            if (!itemId) {
-                return { error: "商品IDが指定されていません。" };
-            }
+        get_product_details: createValidatedUsecase(async (read) => {
+            const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
 
             const product = await gateway.getProductDetails(itemId);
             if (!product) {
@@ -110,7 +128,7 @@ export function createCommerceUsecases({ gateway }) {
             }
 
             return product;
-        },
+        }),
 
         async list_categories() {
             return {
@@ -118,19 +136,16 @@ export function createCommerceUsecases({ gateway }) {
             };
         },
 
-        async get_category_products(params = {}) {
-            const categoryId = toTrimmedString(params.categoryId);
-            if (!categoryId) {
-                return { error: "categoryId が指定されていません。" };
-            }
+        get_category_products: createValidatedUsecase(async (read) => {
+            const categoryId = read.requiredString("categoryId", "categoryId が指定されていません。");
 
             return {
                 categoryId,
                 products: await gateway.getCategoryProducts(categoryId, {
-                    limit: toPositiveInteger(params.limit, 12)
+                    limit: read.positiveInteger("limit", 12)
                 })
             };
-        },
+        }),
 
         async list_brands() {
             return {
@@ -138,35 +153,30 @@ export function createCommerceUsecases({ gateway }) {
             };
         },
 
-        async get_brand_products(params = {}) {
-            const brandId = toTrimmedString(params.brandId);
-            if (!brandId) {
-                return { error: "brandId が指定されていません。" };
-            }
+        get_brand_products: createValidatedUsecase(async (read) => {
+            const brandId = read.requiredString("brandId", "brandId が指定されていません。");
 
             return {
                 brandId,
                 products: await gateway.getBrandProducts(brandId, {
-                    limit: toPositiveInteger(params.limit, 12)
+                    limit: read.positiveInteger("limit", 12)
                 })
             };
-        },
+        }),
 
-        async get_featured_products(params = {}) {
+        get_featured_products: createValidatedUsecase(async (read) => {
             return {
                 products: await gateway.getFeaturedProducts({
-                    limit: toPositiveInteger(params.limit, 6)
+                    limit: read.positiveInteger("limit", 6)
                 })
             };
-        },
+        }),
 
-        async get_recommended_products(params = {}) {
-            const customerId = toTrimmedString(params.customerId);
-            const basedOnItemId = toTrimmedString(params.basedOnItemId);
+        get_recommended_products: createValidatedUsecase(async (read) => {
+            const customerId = read.optionalString("customerId");
+            const basedOnItemId = read.optionalString("basedOnItemId");
 
-            if (!customerId && !basedOnItemId) {
-                return { error: "customerId または basedOnItemId のいずれかを指定してください。" };
-            }
+            read.ensure(customerId || basedOnItemId, "customerId または basedOnItemId のいずれかを指定してください。");
 
             return {
                 customerId: customerId || null,
@@ -174,21 +184,17 @@ export function createCommerceUsecases({ gateway }) {
                 products: await gateway.getRecommendedProducts({
                     customerId,
                     basedOnItemId,
-                    limit: toPositiveInteger(params.limit, 6)
+                    limit: read.positiveInteger("limit", 6)
                 })
             };
-        },
+        }),
 
-        async get_price_quote(params = {}) {
-            const itemId = toTrimmedString(params.itemId);
-            if (!itemId) {
-                return { error: "商品IDが指定されていません。" };
-            }
-
-            const quote = await gateway.getPriceQuote({
+        get_price_quote: createValidatedUsecase(async (read) => {
+            const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
+            const quote = await buildPricedLine(gateway, {
                 itemId,
-                quantity: toPositiveInteger(params.quantity, 1),
-                customerTier: toTrimmedString(params.customerTier) || null
+                quantity: read.positiveInteger("quantity", 1),
+                customerTier: read.optionalString("customerTier") || null
             });
 
             if (!quote) {
@@ -196,150 +202,156 @@ export function createCommerceUsecases({ gateway }) {
             }
 
             return quote;
-        },
+        }),
 
-        async get_bulk_price_quote(params = {}) {
+        get_bulk_price_quote: createValidatedUsecase(async (read, params) => {
             const items = Array.isArray(params.items) ? params.items : [];
-            if (items.length === 0) {
-                return { error: "items を1件以上指定してください。" };
-            }
+            read.ensure(items.length > 0, "items を1件以上指定してください。");
 
-            return gateway.getBulkPriceQuote({
-                items: items.map((item) => ({
-                    itemId: toTrimmedString(item?.itemId),
-                    quantity: toPositiveInteger(item?.quantity, 1)
-                })),
-                customerTier: toTrimmedString(params.customerTier) || null,
-                couponCode: toTrimmedString(params.couponCode) || null
+            const normalizedItems = items.map((item) => ({
+                itemId: toTrimmedString(item?.itemId),
+                quantity: toPositiveInteger(item?.quantity, 1)
+            }));
+            read.ensure(normalizedItems.every((item) => item.itemId), "items[].itemId を指定してください。");
+
+            const lines = (await Promise.all(
+                normalizedItems.map((item) => buildPricedLine(gateway, {
+                    itemId: item.itemId,
+                    quantity: item.quantity,
+                    customerTier: read.optionalString("customerTier") || null
+                }))
+            )).filter(Boolean);
+            const couponCode = read.optionalString("couponCode") || null;
+            const coupon = couponCode ? await gateway.getCouponByCode(couponCode) : null;
+
+            return buildBulkPriceQuote({
+                items: lines,
+                customerTier: read.optionalString("customerTier") || null,
+                couponCode,
+                coupon
             });
-        },
+        }),
 
-        async get_inventory_status(params = {}) {
-            const itemId = toTrimmedString(params.itemId);
-            if (!itemId) {
-                return { error: "商品IDが指定されていません。" };
-            }
-
-            const inventory = await gateway.getInventoryStatus(itemId);
-            if (!inventory) {
+        get_inventory_status: createValidatedUsecase(async (read) => {
+            const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
+            const product = await gateway.getProduct(itemId);
+            if (!product) {
                 return withItemNotFound(itemId);
             }
 
-            return inventory;
-        },
+            return buildInventoryStatus(product);
+        }),
 
         async get_cart() {
-            return gateway.getCart();
+            return buildCartSnapshot(gateway);
         },
 
-        async add_item_to_cart(params = {}) {
-            const itemId = toTrimmedString(params.itemId);
-            if (!itemId) {
-                return { error: "商品IDが指定されていません。" };
+        add_item_to_cart: createValidatedUsecase(async (read) => {
+            const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
+            const quantity = read.positiveInteger("quantity", 1);
+            const product = await gateway.getProduct(itemId);
+
+            if (!product) {
+                return withItemNotFound(itemId);
             }
 
-            return gateway.addItemToCart({
-                itemId,
-                quantity: toPositiveInteger(params.quantity, 1)
-            });
-        },
-
-        async update_cart_item_quantity(params = {}) {
-            const itemId = toTrimmedString(params.itemId);
-            if (!itemId) {
-                return { error: "商品IDが指定されていません。" };
+            const cart = await gateway.getCartState();
+            const existingItem = cart.items.find((item) => item.itemId === itemId);
+            if (existingItem) {
+                existingItem.quantity += quantity;
+            } else {
+                cart.items.push({ itemId, quantity });
             }
 
-            const quantity = Number(params.quantity);
-            if (!Number.isFinite(quantity) || quantity < 0) {
-                return { error: "quantity には0以上の数値を指定してください。" };
+            return saveCartAndBuildSnapshot(gateway, cart);
+        }),
+
+        update_cart_item_quantity: createValidatedUsecase(async (read) => {
+            const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
+            const quantity = read.nonNegativeInteger("quantity", "quantity には0以上の数値を指定してください。");
+            const cart = await gateway.getCartState();
+            const item = cart.items.find((entry) => entry.itemId === itemId);
+            if (!item) {
+                return { error: `カートに itemId「${itemId}」は存在しません。` };
             }
 
-            return gateway.updateCartItemQuantity({
-                itemId,
-                quantity: Math.floor(quantity)
-            });
-        },
-
-        async remove_item_from_cart(params = {}) {
-            const itemId = toTrimmedString(params.itemId);
-            if (!itemId) {
-                return { error: "商品IDが指定されていません。" };
+            if (quantity === 0) {
+                cart.items = cart.items.filter((entry) => entry.itemId !== itemId);
+            } else {
+                item.quantity = quantity;
             }
 
-            return gateway.removeItemFromCart({ itemId });
-        },
+            return saveCartAndBuildSnapshot(gateway, cart);
+        }),
 
-        async apply_coupon_to_cart(params = {}) {
-            const couponCode = toTrimmedString(params.couponCode);
-            if (!couponCode) {
-                return { error: "couponCode が指定されていません。" };
+        remove_item_from_cart: createValidatedUsecase(async (read) => {
+            const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
+            const cart = await gateway.getCartState();
+            cart.items = cart.items.filter((entry) => entry.itemId !== itemId);
+
+            return saveCartAndBuildSnapshot(gateway, cart);
+        }),
+
+        apply_coupon_to_cart: createValidatedUsecase(async (read) => {
+            const couponCode = read.requiredString("couponCode", "couponCode が指定されていません。");
+            const coupon = await gateway.getCouponByCode(couponCode);
+            if (!coupon) {
+                return { error: `couponCode「${couponCode}」は利用できません。` };
             }
 
-            return gateway.applyCouponToCart({ couponCode });
-        },
+            const cart = await gateway.getCartState();
+            cart.couponCode = couponCode;
 
-        async get_available_coupons(params = {}) {
+            return saveCartAndBuildSnapshot(gateway, cart);
+        }),
+
+        get_available_coupons: createValidatedUsecase(async (read) => {
+            const customerTier = normalizeCustomerTier(read.optionalString("customerTier") || null);
             return {
-                coupons: await gateway.getAvailableCoupons({
-                    customerTier: toTrimmedString(params.customerTier) || null
-                })
+                coupons: (await gateway.listCoupons()).filter((coupon) => coupon.eligibleTiers.includes(customerTier))
             };
-        },
+        }),
 
-        async estimate_shipping_fee(params = {}) {
-            const postalCode = toTrimmedString(params.postalCode);
-            const prefecture = toTrimmedString(params.prefecture);
-            if (!postalCode || !prefecture) {
-                return { error: "postalCode と prefecture を指定してください。" };
-            }
+        estimate_shipping_fee: createValidatedUsecase(async (read, params) => {
+            const postalCode = read.requiredString("postalCode", "postalCode と prefecture を指定してください。");
+            const prefecture = read.requiredString("prefecture", "postalCode と prefecture を指定してください。");
 
-            return gateway.estimateShippingFee({
+            return estimateShippingFeeQuote({
                 postalCode,
                 prefecture,
-                shippingMethod: toTrimmedString(params.shippingMethod) || "standard",
+                shippingMethod: read.optionalString("shippingMethod") || "standard",
                 cartTotal: Number(params.cartTotal) || 0
             });
-        },
+        }),
 
-        async get_delivery_slots(params = {}) {
-            const postalCode = toTrimmedString(params.postalCode);
-            const prefecture = toTrimmedString(params.prefecture);
-            if (!postalCode || !prefecture) {
-                return { error: "postalCode と prefecture を指定してください。" };
-            }
+        get_delivery_slots: createValidatedUsecase(async (read) => {
+            const postalCode = read.requiredString("postalCode", "postalCode と prefecture を指定してください。");
+            const prefecture = read.requiredString("prefecture", "postalCode と prefecture を指定してください。");
 
             return {
                 postalCode,
                 prefecture,
                 slots: await gateway.getDeliverySlots({ postalCode, prefecture })
             };
-        },
+        }),
 
-        async validate_shipping_address(params = {}) {
-            const postalCode = toTrimmedString(params.postalCode);
-            const prefecture = toTrimmedString(params.prefecture);
-            const city = toTrimmedString(params.city);
-            const line1 = toTrimmedString(params.line1);
-
-            if (!postalCode || !prefecture || !city || !line1) {
-                return { error: "postalCode, prefecture, city, line1 を指定してください。" };
-            }
+        validate_shipping_address: createValidatedUsecase(async (read) => {
+            const postalCode = read.requiredString("postalCode", "postalCode, prefecture, city, line1 を指定してください。");
+            const prefecture = read.requiredString("prefecture", "postalCode, prefecture, city, line1 を指定してください。");
+            const city = read.requiredString("city", "postalCode, prefecture, city, line1 を指定してください。");
+            const line1 = read.requiredString("line1", "postalCode, prefecture, city, line1 を指定してください。");
 
             return gateway.validateShippingAddress({
                 postalCode,
                 prefecture,
                 city,
                 line1,
-                line2: toTrimmedString(params.line2)
+                line2: read.optionalString("line2")
             });
-        },
+        }),
 
-        async get_customer_profile(params = {}) {
-            const customerId = toTrimmedString(params.customerId);
-            if (!customerId) {
-                return { error: "customerId が指定されていません。" };
-            }
+        get_customer_profile: createValidatedUsecase(async (read) => {
+            const customerId = read.requiredString("customerId", "customerId が指定されていません。");
 
             const profile = await gateway.getCustomerProfile(customerId);
             if (!profile) {
@@ -347,13 +359,10 @@ export function createCommerceUsecases({ gateway }) {
             }
 
             return profile;
-        },
+        }),
 
-        async get_loyalty_summary(params = {}) {
-            const customerId = toTrimmedString(params.customerId);
-            if (!customerId) {
-                return { error: "customerId が指定されていません。" };
-            }
+        get_loyalty_summary: createValidatedUsecase(async (read) => {
+            const customerId = read.requiredString("customerId", "customerId が指定されていません。");
 
             const loyalty = await gateway.getLoyaltySummary(customerId);
             if (!loyalty) {
@@ -361,46 +370,34 @@ export function createCommerceUsecases({ gateway }) {
             }
 
             return loyalty;
-        },
+        }),
 
-        async get_wishlist(params = {}) {
-            const customerId = toTrimmedString(params.customerId);
-            if (!customerId) {
-                return { error: "customerId が指定されていません。" };
-            }
+        get_wishlist: createValidatedUsecase(async (read) => {
+            const customerId = read.requiredString("customerId", "customerId が指定されていません。");
 
             return gateway.getWishlist(customerId);
-        },
+        }),
 
-        async add_item_to_wishlist(params = {}) {
-            const customerId = toTrimmedString(params.customerId);
-            const itemId = toTrimmedString(params.itemId);
-            if (!customerId || !itemId) {
-                return { error: "customerId と itemId を指定してください。" };
-            }
+        add_item_to_wishlist: createValidatedUsecase(async (read) => {
+            const customerId = read.requiredString("customerId", "customerId と itemId を指定してください。");
+            const itemId = read.requiredString("itemId", "customerId と itemId を指定してください。");
 
             return gateway.addItemToWishlist({ customerId, itemId });
-        },
+        }),
 
-        async get_order_history(params = {}) {
-            const customerId = toTrimmedString(params.customerId);
-            if (!customerId) {
-                return { error: "customerId が指定されていません。" };
-            }
+        get_order_history: createValidatedUsecase(async (read) => {
+            const customerId = read.requiredString("customerId", "customerId が指定されていません。");
 
             return {
                 customerId,
                 orders: await gateway.getOrderHistory(customerId, {
-                    limit: toPositiveInteger(params.limit, 5)
+                    limit: read.positiveInteger("limit", 5)
                 })
             };
-        },
+        }),
 
-        async get_order_details(params = {}) {
-            const orderId = toTrimmedString(params.orderId);
-            if (!orderId) {
-                return { error: "orderId が指定されていません。" };
-            }
+        get_order_details: createValidatedUsecase(async (read) => {
+            const orderId = read.requiredString("orderId", "orderId が指定されていません。");
 
             const order = await gateway.getOrderDetails(orderId);
             if (!order) {
@@ -408,23 +405,20 @@ export function createCommerceUsecases({ gateway }) {
             }
 
             return order;
-        },
+        }),
 
-        async get_product_reviews(params = {}) {
-            const itemId = toTrimmedString(params.itemId);
-            if (!itemId) {
-                return { error: "商品IDが指定されていません。" };
-            }
+        get_product_reviews: createValidatedUsecase(async (read) => {
+            const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
 
             const reviews = await gateway.getProductReviews(itemId, {
-                limit: toPositiveInteger(params.limit, 5)
+                limit: read.positiveInteger("limit", 5)
             });
 
             return {
                 itemId,
                 reviews
             };
-        },
+        }),
 
         async get_payment_methods() {
             return {

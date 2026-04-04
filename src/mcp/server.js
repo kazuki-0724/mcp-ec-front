@@ -1,19 +1,21 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { AppError, toAppError } from "../shared/errors/AppError.js";
-import { TOOL_DEFINITIONS } from "./schemas/toolSchemas.js";
+import { createToolRegistry } from "./registry/toolRegistry.js";
 
 export function createMcpServer({ usecases, logger }) {
     const server = new Server(
         { name: "my-custom-api", version: "1.0.0" },
         { capabilities: { tools: {} } }
     );
+    const toolRegistry = createToolRegistry({ usecases });
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_DEFINITIONS }));
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolRegistry.listDefinitions() }));
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const toolName = request.params.name;
-        const toolHandler = usecases[toolName];
+        const toolEntry = toolRegistry.get(toolName);
+        const toolHandler = toolEntry?.handler;
 
         if (!toolHandler) {
             throw new AppError(`Unknown tool: ${toolName}`, { code: "MCP_UNKNOWN_TOOL", status: 400 });

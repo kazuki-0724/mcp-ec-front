@@ -1,5 +1,7 @@
+import { fetchJson } from '../infra/http/fetchJson.js';
+
 async function callTool(name, args = {}) {
-  const res = await fetch('/api/mcp/tool', {
+  const payload = await fetchJson('/api/mcp/tool', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -7,14 +9,6 @@ async function callTool(name, args = {}) {
       arguments: args
     })
   });
-
-  const contentType = res.headers.get('content-type') || '';
-  const isJson = contentType.includes('application/json');
-  const payload = isJson ? await res.json() : { error: await res.text() };
-
-  if (!res.ok) {
-    throw new Error(payload?.error || `APIエラーが発生しました。status=${res.status}`);
-  }
 
   if (payload?.data?.error) {
     throw new Error(payload.data.error);

@@ -4,9 +4,6 @@ import { createMcpServer } from "../mcp/server.js";
 import { createGetRuntimeDiagnosticsUseCase } from "../usecases/getRuntimeDiagnostics.js";
 import { createCommerceUsecases } from "../usecases/commerceUseCases.js";
 import { createHttpClient } from "../infra/http/client.js";
-import { createEmployeeApi } from "../infra/externalApis/employeeApi.js";
-import { createRecipeApi } from "../infra/externalApis/recipeApi.js";
-import { createItemApi } from "../infra/externalApis/itemApi.js";
 import { createExternalApiGateway } from "../gateways/externalApiGateway.js";
 import { createLogger } from "../shared/logger/logger.js";
 
@@ -44,10 +41,7 @@ export async function startMcpApp() {
     });
 
     const gateway = createExternalApiGateway({
-        mode: config.externalApiMode,
-        employeeApi: createEmployeeApi(httpClient, config.externalApi.graphql),
-        recipeApi: createRecipeApi(httpClient, config.externalApi.graphql),
-        itemApi: createItemApi(httpClient, config.externalApi.graphql)
+        mode: config.externalApiMode
     });
 
     const usecases = {
