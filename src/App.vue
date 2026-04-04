@@ -5,6 +5,8 @@ import ChatMessageList from './components/ChatMessageList.vue';
 import ChatInputBar from './components/ChatInputBar.vue';
 import AiClipboardDrawer from './components/AiClipboardDrawer.vue';
 import CommerceDeskPanel from './components/CommerceDeskPanel.vue';
+import ConversationRecordPanel from './components/ConversationRecordPanel.vue';
+import ToolMenuPanel from './components/ToolMenuPanel.vue';
 import { postChat } from './services/chatApi.js';
 import {
   addItemToCart,
@@ -21,6 +23,15 @@ import {
   removeItemFromCart,
   updateCartItemQuantity
 } from './services/commerceApi.js';
+
+const INITIAL_MESSAGES = [
+  {
+    id: 0,
+    role: 'ai',
+    text: 'こんにちは。何をお手伝いしましょうか？',
+    loading: false
+  }
+];
 
 const prompt = ref('');
 const sending = ref(false);
@@ -52,17 +63,29 @@ const applyingCoupon = ref(false);
 const couponCode = ref('');
 const commerceStatusMessage = ref('');
 const commerceErrorMessage = ref('');
-const isCommerceDeskOpen = ref(false);
-const messages = ref([
-  {
-    id: 0,
-    role: 'ai',
-    text: 'こんにちは。社員情報やレシピ材料の取得に対応しています。例: カレーの材料をカゴに追加して。',
-    loading: false
-  }
-]);
+const activeToolPanel = ref('');
+const messages = ref(INITIAL_MESSAGES.map((message) => ({ ...message })));
+const conversationHistory = ref([]);
 
 let messageSeq = 1;
+
+function normalizeConversationTurn(turn, index) {
+  return {
+    turnId: Number(turn?.turnId) || index + 1,
+    userPrompt: typeof turn?.userPrompt === 'string' ? turn.userPrompt : '',
+    assistantResponse: typeof turn?.assistantResponse === 'string' ? turn.assistantResponse : '',
+    toolExecutions: Array.isArray(turn?.toolExecutions) ? turn.toolExecutions : [],
+    calledTools: Array.isArray(turn?.calledTools) ? turn.calledTools : [],
+    timestamp: typeof turn?.timestamp === 'string' ? turn.timestamp : new Date().toISOString()
+  };
+}
+
+function normalizeConversationHistory(history) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .map((turn, index) => normalizeConversationTurn(turn, index))
+    .filter((turn) => turn.userPrompt || turn.assistantResponse);
+}
 
 function scrollChatToBottom(behavior = 'auto') {
   const messageList = document.querySelector('.message-row:last-child');
@@ -336,8 +359,16 @@ function handleInlineOrderLookupUpdate(payload) {
   });
 }
 
-function toggleCommerceDesk() {
-  isCommerceDeskOpen.value = !isCommerceDeskOpen.value;
+function toggleToolMenu() {
+  activeToolPanel.value = activeToolPanel.value === 'menu' ? '' : 'menu';
+}
+
+function openToolPanel(panel) {
+  activeToolPanel.value = panel;
+}
+
+function closeToolPanel() {
+  activeToolPanel.value = '';
 }
 
 async function handleAddToCart(itemId, quantity = 1) {
@@ -480,6 +511,7 @@ async function fetchRuntimeDiagnostics() {
 
 async function selectMenu(menu) {
   activeMenu.value = menu;
+  closeToolPanel();
   if (menu === 'developer' && !devTarget.value) {
     await refreshDevTarget();
   }
@@ -508,15 +540,17 @@ async function sendPrompt() {
 
   createMessage('user', trimmedPrompt);
   prompt.value = '';
+  closeToolPanel();
 
   const loadingMessageId = createMessage('ai', '考え中...', true);
+  const historySnapshot = conversationHistory.value.map((turn, index) => normalizeConversationTurn(turn, index));
   sending.value = true;
 
   await nextTick();
   scrollChatToBottom('smooth');
 
   try {
-    const data = await postChat(trimmedPrompt);
+    const data = await postChat(trimmedPrompt, historySnapshot);
     const toolExecutions = Array.isArray(data.toolExecutions) ? data.toolExecutions : [];
     const inferredSections = inferCommerceSectionsFromToolExecutions(toolExecutions);
     const combinedSections = {
@@ -527,6 +561,20 @@ async function sendPrompt() {
     };
 
     applyChatToolExecutions(toolExecutions);
+    conversationHistory.value = normalizeConversationHistory(
+      Array.isArray(data.conversationRecord)
+        ? data.conversationRecord
+        : [
+            ...historySnapshot,
+            {
+              turnId: historySnapshot.length + 1,
+              userPrompt: trimmedPrompt,
+              assistantResponse: data.text || data.error || '回答を取得できませんでした。',
+              toolExecutions,
+              calledTools: Array.isArray(data.debug?.calledTools) ? data.debug.calledTools : []
+            }
+          ]
+    );
 
     updateMessage(loadingMessageId, {
       text: data.text || data.error || '回答を取得できませんでした。',
@@ -621,11 +669,21 @@ watch(
           @load-order="handleInlineOrderLoad"
         />
         <CommerceDeskPanel
-          :open="isCommerceDeskOpen"
+          :open="activeToolPanel === 'commerce-desk'"
           :customer-profile="customerProfile"
           :loyalty-summary="loyaltySummary"
           :available-coupons="availableCoupons"
-          @close="isCommerceDeskOpen = false"
+          @close="closeToolPanel"
+        />
+        <ConversationRecordPanel
+          :open="activeToolPanel === 'conversation-record'"
+          :conversation-history="conversationHistory"
+          @close="closeToolPanel"
+        />
+        <ToolMenuPanel
+          :open="activeToolPanel === 'menu'"
+          @close="closeToolPanel"
+          @select="openToolPanel"
         />
         <AiClipboardDrawer
           :cart="cart"
@@ -639,7 +697,7 @@ watch(
           @update:coupon-code="couponCode = $event"
           @apply-coupon="handleApplyCoupon"
         />
-        <ChatInputBar v-model="prompt" :sending="sending" @send="sendPrompt" @toggle-commerce-desk="toggleCommerceDesk" />
+        <ChatInputBar v-model="prompt" :sending="sending" @send="sendPrompt" @toggle-tool-menu="toggleToolMenu" />
       </template>
 
       <section v-else class="pt-24 pb-28 md:pb-10 px-4 sm:px-6 lg:px-12 max-w-5xl mx-auto">

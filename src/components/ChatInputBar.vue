@@ -10,7 +10,7 @@ defineProps({
   }
 });
 
-const emit = defineEmits(['update:modelValue', 'send', 'toggle-commerce-desk']);
+const emit = defineEmits(['update:modelValue', 'send', 'toggle-tool-menu']);
 
 function onKeydown(event) {
   if (event.key === 'Enter') {
@@ -24,12 +24,12 @@ function onKeydown(event) {
   <footer class="fixed bottom-0 right-0 left-0 md:left-64 p-4 md:p-6 pb-[120px] md:pb-6 bg-gradient-to-t from-surface via-surface to-transparent pointer-events-none z-30">
     <div class="max-w-4xl mx-auto w-full pointer-events-auto">
       <div class="bg-white/90 backdrop-blur-2xl rounded-3xl p-2 shadow-[0_12px_40px_rgba(25,28,29,0.1)] border border-outline-variant/20 flex items-center gap-2">
-        <button class="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors" type="button" aria-label="コマースデスクを開く" @click="emit('toggle-commerce-desk')">
-          <span class="material-symbols-outlined">add_circle</span>
+        <button class="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors" type="button" aria-label="ツールを開く" @click="emit('toggle-tool-menu')">
+          <span class="material-symbols-outlined">build_circle</span>
         </button>
         <input
           class="flex-1 bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-slate-400 text-sm py-3 px-2"
-          placeholder="例: 社員E001の部署、またはカレーの材料をカゴに追加して"
+          placeholder="例: カレーの材料をカゴに追加して"
           type="text"
           :value="modelValue"
           @input="emit('update:modelValue', $event.target.value)"

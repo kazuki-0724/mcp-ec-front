@@ -113,6 +113,96 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function truncateText(value, maxLength = 1200) {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, maxLength)}...`;
+}
+
+function sanitizeConversationHistory(history) {
+    if (!Array.isArray(history)) return [];
+
+    return history
+        .map((turn, index) => ({
+            turnId: Number(turn?.turnId) || index + 1,
+            userPrompt: truncateText(turn?.userPrompt, 1000),
+            assistantResponse: truncateText(turn?.assistantResponse, 1600),
+            toolExecutions: Array.isArray(turn?.toolExecutions)
+                ? turn.toolExecutions.slice(0, 6).map((execution) => ({
+                    name: execution?.name || '',
+                    arguments: execution?.arguments && typeof execution.arguments === 'object' ? execution.arguments : {},
+                    result: execution?.result ?? null
+                }))
+                : [],
+            calledTools: Array.isArray(turn?.calledTools)
+                ? turn.calledTools.filter((name) => typeof name === 'string' && name.trim())
+                : [],
+            timestamp: typeof turn?.timestamp === 'string' ? turn.timestamp : null
+        }))
+        .filter((turn) => turn.userPrompt || turn.assistantResponse)
+        .slice(-8);
+}
+
+function summarizeToolExecutionsForHistory(toolExecutions = []) {
+    if (!Array.isArray(toolExecutions) || toolExecutions.length === 0) return '';
+
+    return toolExecutions
+        .slice(0, 4)
+        .map((execution) => {
+            const name = execution?.name || 'unknown_tool';
+            const args = JSON.stringify(execution?.arguments || {});
+            const result = truncateText(JSON.stringify(execution?.result ?? null), 400);
+            return `- ${name} args=${args} result=${result}`;
+        })
+        .join('\n');
+}
+
+function buildHistoryModelText(turn) {
+    const assistantResponse = truncateText(turn?.assistantResponse, 1600);
+    const toolSummary = summarizeToolExecutionsForHistory(turn?.toolExecutions);
+
+    if (assistantResponse && toolSummary) {
+        return `${assistantResponse}\n\n参照ツール結果:\n${toolSummary}`;
+    }
+
+    return assistantResponse || (toolSummary ? `参照ツール結果:\n${toolSummary}` : '');
+}
+
+function buildGeminiHistory(conversationHistory) {
+    const history = [];
+
+    for (const turn of conversationHistory) {
+        if (turn.userPrompt) {
+            history.push({
+                role: 'user',
+                parts: [{ text: turn.userPrompt }]
+            });
+        }
+
+        const modelText = buildHistoryModelText(turn);
+        if (modelText) {
+            history.push({
+                role: 'model',
+                parts: [{ text: modelText }]
+            });
+        }
+    }
+
+    return history;
+}
+
+function buildConversationTurn({ turnId, userPrompt, assistantResponse, toolExecutions, calledTools }) {
+    return {
+        turnId,
+        userPrompt: truncateText(userPrompt, 1000),
+        assistantResponse: truncateText(assistantResponse, 1600),
+        toolExecutions: Array.isArray(toolExecutions) ? toolExecutions : [],
+        calledTools: Array.isArray(calledTools) ? calledTools : [],
+        timestamp: new Date().toISOString()
+    };
+}
+
 const DEV_GRAPHQL_QUERIES = {
     employee: {
         operationName: 'EmployeeById',
@@ -346,13 +436,19 @@ app.post('/api/mcp/tool', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const { prompt } = req.body;
+        const { prompt, conversationHistory } = req.body || {};
         const toolResultTexts = [];
         const calledTools = [];
         const toolExecutions = [];
         const callSignatureCount = new Map();
+        const sanitizedConversationHistory = sanitizeConversationHistory(conversationHistory);
+
+        if (typeof prompt !== 'string' || !prompt.trim()) {
+            return res.status(400).json({ error: 'prompt must be a non-empty string' });
+        }
 
         console.log(`[Chat Request] ユーザーからのプロンプト: ${prompt}`);
+        console.log(`[Chat Request] 引き継いだ会話ターン数: ${sanitizedConversationHistory.length}`);
 
         // 1. MCPサーバーから利用可能なツール一覧を取得
         const { tools: mcpTools } = await mcpClient.listTools();
@@ -376,9 +472,9 @@ app.post('/api/chat', async (req, res) => {
         const model = genAI.getGenerativeModel({
             model: "gemini-3.1-flash-lite-preview",
             tools: geminiTools,
-            systemInstruction: "ECアシスタントとして、社員情報・レシピ・商品・カート・お気に入り・注文照会に関する質問は推測せず必ず利用可能なツールを呼び出してから回答してください。カート更新や注文照会を行った場合は、実行結果に基づいて簡潔に状態変化を説明してください。"
+            systemInstruction: "ECアシスタントとして、社員情報・レシピ・商品・カート・お気に入り・注文照会に関する質問は推測せず必ず利用可能なツールを呼び出してから回答してください。会話履歴が与えられている場合は直前の文脈を引き継ぎ、『さっきの件』『それを追加して』のような参照を解決してください。カート更新や注文照会を行った場合は、実行結果に基づいて簡潔に状態変化を説明してください。"
         });
-        const chat = model.startChat();
+        const chat = model.startChat({ history: buildGeminiHistory(sanitizedConversationHistory) });
         // 3. Geminiにプロンプトを送信
         let result = await sendMessageWithRetry(chat, prompt, { maxRetries: 3, baseDelayMs: 800 });
         console.log(`[Gemini Response] Geminiからの初回レスポンス:`, result.response.text());
@@ -456,14 +552,24 @@ app.post('/api/chat', async (req, res) => {
         const fallbackText = toolResultTexts.length > 0
             ? `ツール実行結果: ${toolResultTexts.join(' | ')}`
             : null;
+        const finalText = responseText || fallbackText || '回答テキストを生成できませんでした。';
+        const conversationTurn = buildConversationTurn({
+            turnId: sanitizedConversationHistory.length + 1,
+            userPrompt: prompt,
+            assistantResponse: finalText,
+            toolExecutions,
+            calledTools
+        });
 
         if (calledTools.length === 0) {
             console.warn('[Function Calling] このリクエストではツール呼び出しが行われませんでした。');
         }
 
         res.json({
-            text: responseText || fallbackText || '回答テキストを生成できませんでした。',
+            text: finalText,
             toolExecutions,
+            conversationTurn,
+            conversationRecord: [...sanitizedConversationHistory, conversationTurn],
             debug: {
                 mode: externalApiTarget.mode,
                 endpoint: externalApiTarget.endpoint,

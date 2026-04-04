@@ -1,8 +1,8 @@
-export async function postChat(prompt) {
+export async function postChat(prompt, conversationHistory = []) {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt })
+    body: JSON.stringify({ prompt, conversationHistory })
   });
 
   const contentType = res.headers.get('content-type') || '';

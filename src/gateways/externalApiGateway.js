@@ -177,10 +177,7 @@ const mockDatabase = {
         cartId: "CART-001",
         customerId: "C001",
         couponCode: null,
-        items: [
-            { itemId: "G005", quantity: 1 },
-            { itemId: "G006", quantity: 1 }
-        ]
+        items: []
     }
 };
 
