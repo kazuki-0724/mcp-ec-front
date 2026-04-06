@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 const props = defineProps({
   cart: {
@@ -31,9 +31,51 @@ const props = defineProps({
 const emit = defineEmits(['update-quantity', 'remove-item', 'update:couponCode', 'apply-coupon']);
 
 const isOpen = ref(false);
+const animateCartButton = ref(false);
 const cartItems = computed(() => props.cart?.items || []);
 const totalQty = computed(() => cartItems.value.reduce((sum, item) => sum + item.quantity, 0));
 const totalPrice = computed(() => props.cart?.summary?.grandTotal || 0);
+const cartAnimationSignature = computed(() => JSON.stringify({
+  items: cartItems.value.map((item) => ({ itemId: item.itemId, quantity: item.quantity })),
+  couponCode: props.cart?.couponCode || '',
+  totalPrice: totalPrice.value
+}));
+
+let cartAnimationTimeoutId = null;
+let lastCartSignature = null;
+
+function triggerCartButtonAnimation() {
+  if (cartAnimationTimeoutId) {
+    clearTimeout(cartAnimationTimeoutId);
+  }
+
+  animateCartButton.value = false;
+  requestAnimationFrame(() => {
+    animateCartButton.value = true;
+    cartAnimationTimeoutId = window.setTimeout(() => {
+      animateCartButton.value = false;
+      cartAnimationTimeoutId = null;
+    }, 900);
+  });
+}
+
+watch(cartAnimationSignature, (nextSignature) => {
+  if (lastCartSignature == null) {
+    lastCartSignature = nextSignature;
+    return;
+  }
+
+  if (nextSignature !== lastCartSignature) {
+    triggerCartButtonAnimation();
+    lastCartSignature = nextSignature;
+  }
+});
+
+onBeforeUnmount(() => {
+  if (cartAnimationTimeoutId) {
+    clearTimeout(cartAnimationTimeoutId);
+  }
+});
 
 function openDrawer() {
   isOpen.value = true;
@@ -68,14 +110,28 @@ function updateCouponCode(event) {
     <div class="fixed left-0 right-0 md:left-64 bottom-[208px] md:bottom-28 p-4 md:p-6 z-40">
       <div class="max-w-4xl mx-auto w-full flex justify-end">
         <button
-          class="pointer-events-auto w-14 h-14 bg-white rounded-full shadow-lg border border-slate-100 inline-flex items-center justify-center group hover:scale-105 transition-transform"
+          class="pointer-events-auto cart-fab w-14 h-14 bg-white rounded-full shadow-lg border border-slate-100 inline-flex items-center justify-center group hover:scale-105 transition-transform"
+          :class="{ 'cart-fab--animated': animateCartButton }"
           type="button"
           aria-label="AIのお預かりリストを開く"
           @click="openDrawer"
         >
-          <span class="relative inline-flex items-center justify-center">
-            <span class="material-symbols-outlined text-blue-600 leading-none">inventory_2</span>
-            <span class="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold h-5 w-5 flex items-center justify-center rounded-full border-2 border-white">
+          <span class="relative inline-flex items-center justify-center w-full h-full">
+            <svg
+              class="cart-fab__icon"
+              viewBox="0 0 64 64"
+              aria-hidden="true"
+            >
+              <g class="cart-fab__cart-shape">
+                <path class="cart-fab__handle" d="M19 20h5l4 20h20l4-13H28" />
+                <path class="cart-fab__basket" d="M24 24h29l-4 13H28z" />
+                <circle class="cart-fab__wheel" cx="30" cy="47" r="3.5" />
+                <circle class="cart-fab__wheel" cx="47" cy="47" r="3.5" />
+              </g>
+              <path class="cart-fab__spark cart-fab__spark--left" d="M18 14l2.2 4.8L25 21l-4.8 2.2L18 28l-2.2-4.8L11 21l4.8-2.2z" />
+              <path class="cart-fab__spark cart-fab__spark--right" d="M49 10l1.6 3.6L54 15.2l-3.4 1.6L49 20.4l-1.6-3.6L44 15.2l3.4-1.6z" />
+            </svg>
+            <span class="cart-fab__badge absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold h-5 w-5 flex items-center justify-center rounded-full border-2 border-white">
               {{ totalQty }}
             </span>
           </span>
@@ -250,3 +306,134 @@ function updateCouponCode(event) {
     </transition>
   </div>
 </template>
+
+<style scoped>
+.cart-fab {
+  overflow: visible;
+}
+
+.cart-fab__icon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  display: block;
+  width: 72%;
+  height: 72%;
+  overflow: visible;
+  filter: drop-shadow(0 1px 0 rgba(37, 99, 235, 0.06));
+}
+
+.cart-fab__cart-shape {
+  transform: translateX(-4px);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.cart-fab__handle,
+.cart-fab__basket,
+.cart-fab__wheel {
+  fill: none;
+  stroke: #2563eb;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cart-fab__basket,
+.cart-fab__handle,
+.cart-fab__cart-shape,
+.cart-fab__wheel,
+.cart-fab__spark {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.cart-fab__spark {
+  fill: #f59e0b;
+  opacity: 0;
+}
+
+.cart-fab__badge {
+  transform-origin: center;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.28);
+}
+
+.cart-fab--animated {
+  animation: cart-fab-bump 1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cart-fab--animated .cart-fab__cart-shape {
+  animation: cart-basket-wobble 1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cart-fab--animated .cart-fab__wheel {
+  animation: cart-wheel-bounce 1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cart-fab--animated .cart-fab__spark--left {
+  animation: cart-spark-left 1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cart-fab--animated .cart-fab__spark--right {
+  animation: cart-spark-right 1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cart-fab--animated .cart-fab__badge {
+  animation: cart-badge-pop 1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes cart-fab-bump {
+  0% { transform: scale(1) rotate(0deg); }
+  18% { transform: scale(1.18) rotate(-7deg); }
+  36% { transform: scale(0.94) rotate(5deg); }
+  56% { transform: scale(1.1) rotate(-3deg); }
+  76% { transform: scale(0.98) rotate(1deg); }
+  100% { transform: scale(1); }
+}
+
+@keyframes cart-basket-wobble {
+  0% { transform: translateX(-4px) translateY(0) rotate(0deg); }
+  20% { transform: translateX(-4px) translateY(-4px) rotate(-11deg); }
+  40% { transform: translateX(-4px) translateY(1px) rotate(9deg); }
+  60% { transform: translateX(-4px) translateY(-2px) rotate(-5deg); }
+  80% { transform: translateX(-4px) translateY(0) rotate(3deg); }
+  100% { transform: translateX(-4px) translateY(0) rotate(0deg); }
+}
+
+@keyframes cart-wheel-bounce {
+  0% { transform: translateY(0) scale(1); }
+  20% { transform: translateY(4px) scale(0.84); }
+  40% { transform: translateY(-2px) scale(1.08); }
+  65% { transform: translateY(2px) scale(0.92); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes cart-spark-left {
+  0% { opacity: 0; transform: translate(-1px, 6px) scale(0.2) rotate(-18deg); }
+  22% { opacity: 1; transform: translate(0, 0) scale(1.2) rotate(0deg); }
+  100% { opacity: 0; transform: translate(-10px, -12px) scale(0.75) rotate(12deg); }
+}
+
+@keyframes cart-spark-right {
+  0% { opacity: 0; transform: translate(2px, 5px) scale(0.2) rotate(16deg); }
+  24% { opacity: 1; transform: translate(0, 0) scale(1.15) rotate(0deg); }
+  100% { opacity: 0; transform: translate(10px, -10px) scale(0.7) rotate(-12deg); }
+}
+
+@keyframes cart-badge-pop {
+  0% { transform: scale(1); }
+  22% { transform: scale(1.35); }
+  45% { transform: scale(0.9); }
+  70% { transform: scale(1.16); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cart-fab--animated,
+  .cart-fab--animated .cart-fab__cart-shape,
+  .cart-fab--animated .cart-fab__wheel,
+  .cart-fab--animated .cart-fab__spark {
+    animation: none;
+  }
+}
+</style>

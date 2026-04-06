@@ -91,7 +91,8 @@ export function createMockDataSource() {
         async getReturnPolicy(categoryId) {
             return cloneJson(database.returnPolicy.byCategory[categoryId] || database.returnPolicy.default);
         },
-        async getDeliverySlots(prefecture) {
+        async getDeliverySlots(input) {
+            const prefecture = typeof input === "string" ? input : input?.prefecture;
             return ["北海道", "沖縄県"].includes(prefecture)
                 ? cloneJson(database.deliverySlots.remote)
                 : cloneJson(database.deliverySlots.default);

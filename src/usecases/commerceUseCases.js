@@ -1,6 +1,5 @@
 import {
     buildBulkPriceQuote,
-    buildCartSummary,
     buildInventoryStatus,
     buildPriceLine,
     estimateShippingFeeQuote,
@@ -21,27 +20,6 @@ async function buildPricedLine(gateway, { itemId, quantity, customerTier }) {
         quantity,
         customerTier
     });
-}
-
-async function buildCartSnapshot(gateway) {
-    const cart = await gateway.getCartState();
-    const customerProfile = await gateway.getCustomerProfile(cart.customerId);
-    const customerTier = customerProfile?.tier || "bronze";
-    const items = (await Promise.all(
-        (cart.items || []).map((item) => buildPricedLine(gateway, {
-            itemId: item.itemId,
-            quantity: item.quantity,
-            customerTier
-        }))
-    )).filter(Boolean);
-    const coupon = cart.couponCode ? await gateway.getCouponByCode(cart.couponCode) : null;
-
-    return buildCartSummary({ cart, items, coupon });
-}
-
-async function saveCartAndBuildSnapshot(gateway, cart) {
-    await gateway.saveCartState(cart);
-    return buildCartSnapshot(gateway);
 }
 
 export function createCommerceUsecases({ gateway }) {
@@ -243,66 +221,33 @@ export function createCommerceUsecases({ gateway }) {
         }),
 
         async get_cart() {
-            return buildCartSnapshot(gateway);
+            return gateway.getCart();
         },
 
         add_item_to_cart: createValidatedUsecase(async (read) => {
             const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
             const quantity = read.positiveInteger("quantity", 1);
-            const product = await gateway.getProduct(itemId);
 
-            if (!product) {
-                return withItemNotFound(itemId);
-            }
-
-            const cart = await gateway.getCartState();
-            const existingItem = cart.items.find((item) => item.itemId === itemId);
-            if (existingItem) {
-                existingItem.quantity += quantity;
-            } else {
-                cart.items.push({ itemId, quantity });
-            }
-
-            return saveCartAndBuildSnapshot(gateway, cart);
+            return gateway.addItemToCart({ itemId, quantity });
         }),
 
         update_cart_item_quantity: createValidatedUsecase(async (read) => {
             const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
             const quantity = read.nonNegativeInteger("quantity", "quantity には0以上の数値を指定してください。");
-            const cart = await gateway.getCartState();
-            const item = cart.items.find((entry) => entry.itemId === itemId);
-            if (!item) {
-                return { error: `カートに itemId「${itemId}」は存在しません。` };
-            }
 
-            if (quantity === 0) {
-                cart.items = cart.items.filter((entry) => entry.itemId !== itemId);
-            } else {
-                item.quantity = quantity;
-            }
-
-            return saveCartAndBuildSnapshot(gateway, cart);
+            return gateway.updateCartItemQuantity({ itemId, quantity });
         }),
 
         remove_item_from_cart: createValidatedUsecase(async (read) => {
             const itemId = read.requiredString("itemId", "商品IDが指定されていません。");
-            const cart = await gateway.getCartState();
-            cart.items = cart.items.filter((entry) => entry.itemId !== itemId);
 
-            return saveCartAndBuildSnapshot(gateway, cart);
+            return gateway.removeItemFromCart({ itemId });
         }),
 
         apply_coupon_to_cart: createValidatedUsecase(async (read) => {
             const couponCode = read.requiredString("couponCode", "couponCode が指定されていません。");
-            const coupon = await gateway.getCouponByCode(couponCode);
-            if (!coupon) {
-                return { error: `couponCode「${couponCode}」は利用できません。` };
-            }
 
-            const cart = await gateway.getCartState();
-            cart.couponCode = couponCode;
-
-            return saveCartAndBuildSnapshot(gateway, cart);
+            return gateway.applyCouponToCart({ couponCode });
         }),
 
         get_available_coupons: createValidatedUsecase(async (read) => {

@@ -5,6 +5,7 @@ import { createGetRuntimeDiagnosticsUseCase } from "../usecases/getRuntimeDiagno
 import { createCommerceUsecases } from "../usecases/commerceUseCases.js";
 import { createHttpClient } from "../infra/http/client.js";
 import { createExternalApiGateway } from "../gateways/externalApiGateway.js";
+import { createGraphqlCommerceApis } from "../gateways/external/createGraphqlCommerceApis.js";
 import { createLogger } from "../shared/logger/logger.js";
 
 function summarizeExternalApiTarget(config) {
@@ -40,8 +41,19 @@ export async function startMcpApp() {
         retryDelayMs: config.externalApi.retryDelayMs
     });
 
+    const graphqlApis = config.externalApiMode === "mock"
+        ? {}
+        : createGraphqlCommerceApis({
+            httpClient,
+            endpoint: config.externalApi.graphql.endpoint,
+            token: config.externalApi.graphql.token,
+            userId: config.externalApi.graphql.userId
+        });
+
     const gateway = createExternalApiGateway({
-        mode: config.externalApiMode
+        mode: config.externalApiMode,
+        logger,
+        ...graphqlApis
     });
 
     const usecases = {
@@ -52,6 +64,11 @@ export async function startMcpApp() {
                 cwd: process.cwd(),
                 startedAt: new Date().toISOString(),
                 externalApiMode: config.externalApiMode,
+                gatewaySelection: config.externalApiMode === "mock"
+                    ? "mock"
+                    : config.externalApiMode === "local"
+                        ? "mixed-local"
+                        : "external",
                 externalApi: config.externalApi,
                 envSnapshot: {
                     EXTERNAL_API_MODE: process.env.EXTERNAL_API_MODE || null,

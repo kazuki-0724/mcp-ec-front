@@ -5,7 +5,7 @@ export function createGetRuntimeDiagnosticsUseCase({ runtime }) {
             cwd: runtime.cwd,
             startedAt: runtime.startedAt,
             externalApiMode: runtime.externalApiMode,
-            gatewaySelection: runtime.externalApiMode === "mock" ? "mock" : "external",
+            gatewaySelection: runtime.gatewaySelection || (runtime.externalApiMode === "mock" ? "mock" : "external"),
             externalApi: {
                 endpoint: runtime.externalApi?.graphql?.endpoint || null,
                 tokenConfigured: Boolean(runtime.externalApi?.graphql?.token),

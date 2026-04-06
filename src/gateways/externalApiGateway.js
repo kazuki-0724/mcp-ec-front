@@ -1,4 +1,6 @@
+import { createCommerceGateway } from "./createCommerceGateway.js";
 import { createMixedGateway } from "./external/createMixedGateway.js";
+import { createExternalDataSource } from "./external/createExternalDataSource.js";
 import { createMockGateway } from "./mock/createMockGateway.js";
 
 export function createExternalApiGateway(options = {}) {
@@ -8,5 +10,11 @@ export function createExternalApiGateway(options = {}) {
         return createMockGateway();
     }
 
-    return createMixedGateway(options);
+    if (options.mode === "local") {
+        return createMixedGateway(options);
+    }
+
+    return createCommerceGateway({
+        dataSource: createExternalDataSource(options)
+    });
 }

@@ -266,6 +266,11 @@ export function createCommerceGateway({ dataSource }) {
         },
 
         async addItemToCart({ itemId, quantity }) {
+            if (typeof dataSource.addItemToCart === "function") {
+                const cart = await dataSource.addItemToCart(itemId, quantity);
+                return summarizeCartState(cart);
+            }
+
             const product = await dataSource.getProduct(itemId);
             if (!product) {
                 return notFoundProduct(itemId);
@@ -284,6 +289,11 @@ export function createCommerceGateway({ dataSource }) {
         },
 
         async updateCartItemQuantity({ itemId, quantity }) {
+            if (typeof dataSource.updateCartItemQuantity === "function") {
+                const cart = await dataSource.updateCartItemQuantity(itemId, quantity);
+                return summarizeCartState(cart);
+            }
+
             const cart = await dataSource.getCart();
             const item = cart.items.find((entry) => entry.itemId === itemId);
             if (!item) {
@@ -301,6 +311,11 @@ export function createCommerceGateway({ dataSource }) {
         },
 
         async removeItemFromCart({ itemId }) {
+            if (typeof dataSource.removeItemFromCart === "function") {
+                const cart = await dataSource.removeItemFromCart(itemId);
+                return summarizeCartState(cart);
+            }
+
             const cart = await dataSource.getCart();
             cart.items = cart.items.filter((entry) => entry.itemId !== itemId);
             await dataSource.saveCart(cart);
@@ -308,6 +323,11 @@ export function createCommerceGateway({ dataSource }) {
         },
 
         async applyCouponToCart({ couponCode }) {
+            if (typeof dataSource.applyCouponToCart === "function") {
+                const cart = await dataSource.applyCouponToCart(couponCode);
+                return summarizeCartState(cart);
+            }
+
             const coupon = await findCouponByCode(couponCode);
             if (!coupon) {
                 return { error: `couponCode「${couponCode}」は利用できません。` };
@@ -323,8 +343,8 @@ export function createCommerceGateway({ dataSource }) {
             return estimateShippingFeeQuote({ postalCode, prefecture, shippingMethod, cartTotal });
         },
 
-        async getDeliverySlots({ prefecture }) {
-            return dataSource.getDeliverySlots(prefecture);
+        async getDeliverySlots({ postalCode, prefecture }) {
+            return dataSource.getDeliverySlots({ postalCode, prefecture });
         },
 
         async validateShippingAddress(address) {
@@ -371,6 +391,21 @@ export function createCommerceGateway({ dataSource }) {
         },
 
         async addItemToWishlist({ customerId, itemId }) {
+            if (typeof dataSource.addItemToWishlist === "function") {
+                const customer = await dataSource.getCustomerProfile(customerId);
+                if (!customer) {
+                    return notFoundCustomer(customerId);
+                }
+
+                const itemIds = await dataSource.addItemToWishlist(customerId, itemId);
+                const productMap = await getProductMap();
+
+                return {
+                    customerId,
+                    items: (await Promise.all(itemIds.map((wishlistItemId) => enrichProduct(productMap.get(wishlistItemId))))).filter(Boolean)
+                };
+            }
+
             const [customer, product, wishlist] = await Promise.all([
                 dataSource.getCustomerProfile(customerId),
                 dataSource.getProduct(itemId),
