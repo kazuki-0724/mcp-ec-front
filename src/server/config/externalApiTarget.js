@@ -12,9 +12,24 @@ export function resolveExternalApiMode(env = process.env) {
   return toBoolean(env.USE_EXTERNAL_APIS, false) ? 'production' : 'mock';
 }
 
+export function resolveGraphqlEndpoint(mode, env = process.env) {
+  const endpoint = (env.GRAPHQL_API_ENDPOINT || '').trim();
+  if (endpoint) {
+    return endpoint;
+  }
+
+  return mode === 'local' ? 'http://localhost:8081/graphql' : null;
+}
+
+export function assertExternalApiTargetConfigured(mode, endpoint) {
+  if (mode !== 'mock' && !endpoint) {
+    throw new Error(`GRAPHQL_API_ENDPOINT is required when EXTERNAL_API_MODE=${mode}`);
+  }
+}
+
 export function summarizeExternalApiTarget(env = process.env) {
   const mode = resolveExternalApiMode(env);
-  const endpoint = env.GRAPHQL_API_ENDPOINT || (mode === 'local' ? 'http://localhost:8081/graphql' : null);
+  const endpoint = resolveGraphqlEndpoint(mode, env);
 
   if (mode === 'mock') {
     return {
@@ -25,6 +40,8 @@ export function summarizeExternalApiTarget(env = process.env) {
       userId: null
     };
   }
+
+  assertExternalApiTargetConfigured(mode, endpoint);
 
   return {
     mode,
