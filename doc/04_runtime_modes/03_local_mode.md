@@ -13,13 +13,16 @@
 
 ## mixed-local の意味
 
-local は単純な external 専用ではありません。`EXTERNAL_API_NOT_IMPLEMENTED` を返したメソッドだけ mock にフォールバックします。
+local は単純な external 専用ではありません。`EXTERNAL_API_NOT_IMPLEMENTED`
+を返したメソッドだけ mock にフォールバックします。
 
 ### 使い分け
 
 - GraphQL 実装があるメソッド: external を使う
 - 未実装メソッド: mock にフォールバックする
-- GraphQL の業務エラーや shape エラー: mock に逃がさずエラーを返す
+- GraphQL の HTTP エラー / timeout / shape エラー: mock に逃がさずエラーを返す
+
+つまり fallback 条件は「未実装エラーコード」のみです。
 
 ## 確認手順
 
@@ -34,3 +37,9 @@ local は単純な external 専用ではありません。`EXTERNAL_API_NOT_IMPL
 
 - local で画面が動いても、一部は mock フォールバックの可能性がある
 - production readiness の判断には local 単独では不十分
+
+## 関連ドキュメント
+
+- 章トップ: [README.md](README.md)
+- mode 解決ルール: [01_mode_resolution.md](01_mode_resolution.md)
+- production の条件: [04_production_mode.md](04_production_mode.md)

@@ -6,14 +6,14 @@
 
 ```mermaid
 flowchart LR
-	A[EXTERNAL_API_MODE] --> B{Resolved mode}
-	B -->|mock| C[mock gateway]
-	B -->|local| D[mixed-local gateway]
-	B -->|production| E[external gateway]
-	C --> F[mock database]
-	D --> G[GraphQL first]
-	D --> H[mock fallback on not implemented]
-	E --> I[GraphQL only]
+  A[EXTERNAL_API_MODE] --> B{Resolved mode}
+  B -->|mock| C[mock gateway]
+  B -->|local| D[mixed-local gateway]
+  B -->|production| E[external gateway]
+  C --> F[mock database]
+  D --> G[GraphQL first]
+  D --> H[mock fallback on EXTERNAL_API_NOT_IMPLEMENTED]
+  E --> I[GraphQL only]
 ```
 
 ## 文書一覧
@@ -28,3 +28,7 @@ flowchart LR
 - mode 解決ロジックを親子プロセスの両方で理解する
 - local の mixed-local 構成を明示する
 - production に mock フォールバックがないことを明確にする
+
+## 次の章
+
+- GraphQL 契約と API 仕様: [../05_api_reference/README.md](../05_api_reference/README.md)

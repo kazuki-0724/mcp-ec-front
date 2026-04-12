@@ -10,6 +10,10 @@
 4. MCP クライアント生成と接続
 5. Express アプリ起動
 
+`/api/chat` と `/api/mcp/tool` はどちらも親プロセスが受け付けますが、
+前者は Gemini を介した tool オーケストレーション、後者は
+ツール名指定の直接実行という違いがあります。
+
 ## MCP クライアント
 
 `src/server/mcp/createMcpClient.js` は `StdioClientTransport` を使って `node mcp-server.js` を起動します。
@@ -20,6 +24,9 @@
 - listTools の取得
 - callTool の実行
 - unknown tool の事前検出
+
+`callToolByName` は毎回 `listTools()` を参照して実在ツールを確認し、
+未知ツールは HTTP 400 相当の構造で返します。
 
 ### 子プロセスへ渡す値
 
@@ -40,3 +47,15 @@
 4. gateway 組み立て
 5. usecase 生成
 6. MCP サーバー起動
+
+mode に応じた gateway 選択は次のようになります。
+
+- `mock`: mock gateway
+- `local`: mixed-local (external 優先 + 未実装時 mock fallback)
+- `production`: external gateway
+
+## 関連ドキュメント
+
+- 章トップ: [README.md](README.md)
+- registry 詳細: [02_tool_registry.md](02_tool_registry.md)
+- function calling 詳細: [03_function_calling.md](03_function_calling.md)
