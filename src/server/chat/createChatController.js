@@ -65,7 +65,7 @@ export function createChatController({ genAI, mcpClient, externalApiTarget }) {
       }];
 
       const model = genAI.getGenerativeModel({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3.5-flash',
         tools: geminiTools,
         systemInstruction: 'ECアシスタントとして、社員情報・レシピ・商品・カート・お気に入り・注文照会に関する質問は推測せず必ず利用可能なツールを呼び出してから回答してください。会話履歴が与えられている場合は直前の文脈を引き継ぎ、「さっきの件」「それを追加して」のような参照を解決してください。カート更新や注文照会を行った場合は、実行結果に基づいて簡潔に状態変化を説明してください。'
       });
